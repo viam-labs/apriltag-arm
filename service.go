@@ -228,7 +228,16 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 		return nil, err
 	}
 
-	planOnly, _ := cmd["plan"].(bool)
+	var planOnly bool
+	if v, ok := cmd["plan"]; ok {
+		s.logger.Debugf("move_to_pose plan field: %v (type: %T)", v, v)
+		switch p := v.(type) {
+		case bool:
+			planOnly = p
+		case string:
+			planOnly = p == "true"
+		}
+	}
 
 	// target = tagWorld * offset
 	offsetPose := spatialmath.NewPose(saved.Point, &saved.Orientation)
