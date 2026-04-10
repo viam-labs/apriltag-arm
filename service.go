@@ -76,10 +76,6 @@ func newApriltagArmService(ctx context.Context, deps resource.Dependencies, conf
 		return nil, fmt.Errorf("failed to get frame system service: %w", err)
 	}
 
-	if err := svc.validateFrames(ctx, cfg); err != nil {
-		return nil, err
-	}
-
 	return svc, nil
 }
 
@@ -247,29 +243,6 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 
 	s.logger.Infof("moved to pose %q (tag %d)", name, saved.TagID)
 	return map[string]interface{}{"success": true, "name": name}, nil
-}
-
-// validateFrames checks that the pose tracker and arm are registered in the
-// frame system, so misconfiguration fails at Reconfigure time with a clear error.
-func (s *apriltagArmService) validateFrames(ctx context.Context, cfg *Config) error {
-	fsCfg, err := s.fsSvc.FrameSystemConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get frame system config: %w", err)
-	}
-
-	frames := make(map[string]bool, len(fsCfg.Parts))
-	for _, part := range fsCfg.Parts {
-		frames[part.FrameConfig.Name()] = true
-	}
-
-	if !frames[cfg.PoseTrackerName] {
-		return fmt.Errorf("pose tracker %q has no frame configured; add a frame to it in the machine config", cfg.PoseTrackerName)
-	}
-	if !frames[cfg.ArmName] {
-		return fmt.Errorf("arm %q has no frame configured; add a frame to it in the machine config", cfg.ArmName)
-	}
-
-	return nil
 }
 
 // getTagPoseInWorld returns the named tag's pose in world frame.
