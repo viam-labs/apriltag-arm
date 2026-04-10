@@ -1,0 +1,22 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "viam:apriltag-arm",
+  "visibility": "public_unlisted",
+  "url": "",
+  "description": "Generic service that moves a robot arm to pre-taught positions relative to AprilTag fiducial markers.",
+  "applications": null,
+  "markdown_link": "README.md",
+  "entrypoint": "bin/apriltag-arm",
+  "first_run": "",
+  "build": {
+    "build": "make module.tar.gz",
+    "setup": "make setup",
+    "path": "module.tar.gz",
+    "arch": [
+      "linux/amd64",
+      "linux/arm64",
+      "darwin/arm64",
+      "windows/amd64"
+    ]
+  }
+}
