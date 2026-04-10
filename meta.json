@@ -1,6 +1,6 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
-  "module_id": "viam-dev:apriltag-arm",
+  "module_id": "e76d1b3b-0468-4efd-bb7f-fb1d2b352fcb:apriltag-arm",
   "visibility": "public_unlisted",
   "url": "https://github.com/viam-labs/apriltag-arm",
   "description": "Generic service that moves a robot arm to pre-taught positions relative to AprilTag fiducial markers.",

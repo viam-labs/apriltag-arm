@@ -43,7 +43,6 @@ type apriltagArmService struct {
 	mu     sync.Mutex
 
 	tracker   posetracker.PoseTracker
-	armComp   arm.Arm
 	motionSvc motion.Service
 	fsSvc     framesystem.Service
 }
@@ -60,14 +59,9 @@ func newApriltagArmService(ctx context.Context, deps resource.Dependencies, conf
 		logger: logger,
 	}
 
-	svc.tracker, err = posetracker.FromDependencies(deps, cfg.CameraName)
+	svc.tracker, err = posetracker.FromDependencies(deps, cfg.PoseTrackerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pose tracker %q: %w", cfg.CameraName, err)
-	}
-
-	svc.armComp, err = arm.FromProvider(deps, cfg.ArmName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get arm %q: %w", cfg.ArmName, err)
+		return nil, fmt.Errorf("failed to get pose tracker %q: %w", cfg.PoseTrackerName, err)
 	}
 
 	svc.motionSvc, err = motion.FromProvider(deps, cfg.MotionServiceName)
@@ -273,7 +267,7 @@ func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (
 // persistConfig writes the current in-memory config back to the Viam cloud config.
 func (s *apriltagArmService) persistConfig(ctx context.Context) error {
 	attrMap := utils.AttributeMap{
-		"camera_name":         s.cfg.CameraName,
+		"pose_tracker_name":   s.cfg.PoseTrackerName,
 		"arm_name":            s.cfg.ArmName,
 		"motion_service_name": s.cfg.MotionServiceName,
 		"saved_poses":         savedPosesToAttrMap(s.cfg.SavedPoses),

@@ -4,13 +4,15 @@ import (
 	"fmt"
 
 	"github.com/golang/geo/r3"
+	"go.viam.com/rdk/components/arm"
+	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
 )
 
 // Config holds the module configuration as stored in the Viam machine config.
 type Config struct {
-	CameraName        string               `json:"camera_name"`
+	PoseTrackerName   string               `json:"pose_tracker_name"`
 	ArmName           string               `json:"arm_name"`
 	MotionServiceName string               `json:"motion_service_name"`
 	SavedPoses        map[string]SavedPose `json:"saved_poses"`
@@ -27,8 +29,8 @@ type SavedPose struct {
 
 // Validate checks required fields and returns resource dependency names.
 func (c *Config) Validate(path string) ([]string, []string, error) {
-	if c.CameraName == "" {
-		return nil, nil, fmt.Errorf("camera_name is required")
+	if c.PoseTrackerName == "" {
+		return nil, nil, fmt.Errorf("pose_tracker_name is required")
 	}
 	if c.ArmName == "" {
 		return nil, nil, fmt.Errorf("arm_name is required")
@@ -38,8 +40,8 @@ func (c *Config) Validate(path string) ([]string, []string, error) {
 	}
 
 	deps := []string{
-		c.CameraName,
-		c.ArmName,
+		posetracker.Named(c.PoseTrackerName).String(),
+		arm.Named(c.ArmName).String(),
 		motion.Named(c.MotionServiceName).String(),
 	}
 
