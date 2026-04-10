@@ -8,6 +8,8 @@ import (
 
 	vmodutils "github.com/erh/vmodutils"
 
+	"encoding/json"
+
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
@@ -72,6 +74,10 @@ func newApriltagArmService(ctx context.Context, deps resource.Dependencies, conf
 	svc.fsSvc, err = framesystem.FromDependencies(deps)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get frame system service: %w", err)
+	}
+
+	if err := svc.validateFrames(ctx, cfg); err != nil {
+		return nil, err
 	}
 
 	return svc, nil
@@ -243,6 +249,29 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 	return map[string]interface{}{"success": true, "name": name}, nil
 }
 
+// validateFrames checks that the pose tracker and arm are registered in the
+// frame system, so misconfiguration fails at Reconfigure time with a clear error.
+func (s *apriltagArmService) validateFrames(ctx context.Context, cfg *Config) error {
+	fsCfg, err := s.fsSvc.FrameSystemConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get frame system config: %w", err)
+	}
+
+	frames := make(map[string]bool, len(fsCfg.Parts))
+	for _, part := range fsCfg.Parts {
+		frames[part.FrameConfig.Name()] = true
+	}
+
+	if !frames[cfg.PoseTrackerName] {
+		return fmt.Errorf("pose tracker %q has no frame configured; add a frame to it in the machine config", cfg.PoseTrackerName)
+	}
+	if !frames[cfg.ArmName] {
+		return fmt.Errorf("arm %q has no frame configured; add a frame to it in the machine config", cfg.ArmName)
+	}
+
+	return nil
+}
+
 // getTagPoseInWorld returns the named tag's pose in world frame.
 // Returns an error immediately if the tag is not visible.
 func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (*referenceframe.PoseInFrame, error) {
@@ -265,24 +294,16 @@ func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (
 }
 
 // persistConfig writes the current in-memory config back to the Viam cloud config.
+// JSON-marshaling the Config ensures the same field names are used when reading
+// back via resource.NativeConfig.
 func (s *apriltagArmService) persistConfig(ctx context.Context) error {
-	attrMap := utils.AttributeMap{
-		"pose_tracker_name":   s.cfg.PoseTrackerName,
-		"arm_name":            s.cfg.ArmName,
-		"motion_service_name": s.cfg.MotionServiceName,
-		"saved_poses":         savedPosesToAttrMap(s.cfg.SavedPoses),
+	b, err := json.Marshal(s.cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	var attrMap utils.AttributeMap
+	if err := json.Unmarshal(b, &attrMap); err != nil {
+		return fmt.Errorf("failed to build attribute map: %w", err)
 	}
 	return vmodutils.UpdateComponentCloudAttributesFromModuleEnv(ctx, s.name, attrMap, s.logger)
-}
-
-func savedPosesToAttrMap(poses map[string]SavedPose) map[string]interface{} {
-	out := make(map[string]interface{}, len(poses))
-	for name, p := range poses {
-		out[name] = map[string]interface{}{
-			"tag_id":      p.TagID,
-			"point":       p.Point,
-			"orientation": p.Orientation,
-		}
-	}
-	return out
 }
