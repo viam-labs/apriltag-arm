@@ -10,7 +10,6 @@ import (
 
 	"encoding/json"
 
-	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
@@ -229,12 +228,31 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 		return nil, err
 	}
 
+	planOnly, _ := cmd["plan"].(bool)
+
 	// target = tagWorld * offset
 	offsetPose := spatialmath.NewPose(saved.Point, &saved.Orientation)
 	target := spatialmath.Compose(tagWorld.Pose(), offsetPose)
 
+	pt := target.Point()
+	ov := target.Orientation().OrientationVectorDegrees()
+	plan := map[string]interface{}{
+		"x":     pt.X,
+		"y":     pt.Y,
+		"z":     pt.Z,
+		"o_x":   ov.OX,
+		"o_y":   ov.OY,
+		"o_z":   ov.OZ,
+		"theta": ov.Theta,
+	}
+
+	if planOnly {
+		s.logger.Infof("plan-only move_to_pose %q (tag %d)", name, saved.TagID)
+		return map[string]interface{}{"success": true, "name": name, "plan": plan}, nil
+	}
+
 	_, err = s.motionSvc.Move(ctx, motion.MoveReq{
-		ComponentName: arm.Named(s.cfg.ArmName).String(),
+		ComponentName: s.cfg.ArmName,
 		Destination:   referenceframe.NewPoseInFrame("world", target),
 	})
 	if err != nil {
@@ -242,7 +260,7 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 	}
 
 	s.logger.Infof("moved to pose %q (tag %d)", name, saved.TagID)
-	return map[string]interface{}{"success": true, "name": name}, nil
+	return map[string]interface{}{"success": true, "name": name, "plan": plan}, nil
 }
 
 // getTagPoseInWorld returns the named tag's pose in world frame.
