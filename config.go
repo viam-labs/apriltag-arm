@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/golang/geo/r3"
-	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
@@ -41,7 +40,6 @@ func (c *Config) Validate(path string) ([]string, []string, error) {
 
 	deps := []string{
 		posetracker.Named(c.PoseTrackerName).String(),
-		arm.Named(c.ArmName).String(),
 		motion.Named(c.MotionServiceName).String(),
 	}
 
