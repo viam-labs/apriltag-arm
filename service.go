@@ -154,6 +154,9 @@ func (s *apriltagArmService) handleSavePose(ctx context.Context, cmd map[string]
 		return nil, fmt.Errorf("failed to persist config: %w", err)
 	}
 
+	s.logger.Infof("arm relative to tag %d: pos=(%.2f, %.2f, %.2f) orientation=(ox=%.3f oy=%.3f oz=%.3f theta=%.3f)",
+		tagID, saved.Point.X, saved.Point.Y, saved.Point.Z,
+		saved.Orientation.OX, saved.Orientation.OY, saved.Orientation.OZ, saved.Orientation.Theta)
 	s.logger.Infof("saved pose %q for tag %d", name, tagID)
 	return map[string]interface{}{"success": true, "name": name, "tag_id": tagID}, nil
 }
@@ -284,6 +287,11 @@ func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (
 	if !ok {
 		return nil, fmt.Errorf("tag %d is not visible", tagID)
 	}
+
+	cp := tagPose.Pose().Point()
+	co := tagPose.Pose().Orientation().OrientationVectorDegrees()
+	s.logger.Infof("tag %d in camera frame: pos=(%.2f, %.2f, %.2f) orientation=(ox=%.3f oy=%.3f oz=%.3f theta=%.3f)",
+		tagID, cp.X, cp.Y, cp.Z, co.OX, co.OY, co.OZ, co.Theta)
 
 	tagWorld, err := s.fsSvc.TransformPose(ctx, tagPose, "world", nil)
 	if err != nil {
