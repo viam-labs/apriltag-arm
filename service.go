@@ -2,14 +2,14 @@ package apriltagarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync"
 
 	vmodutils "github.com/erh/vmodutils"
 
-	"encoding/json"
-
+	"go.viam.com/rdk/components/camera"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
@@ -46,6 +46,7 @@ type apriltagArmService struct {
 	tracker   posetracker.PoseTracker
 	motionSvc motion.Service
 	fsSvc     framesystem.Service
+	cam       camera.Camera // optional; used to record tag pixel position at save time
 }
 
 func newApriltagArmService(ctx context.Context, deps resource.Dependencies, config resource.Config, logger logging.Logger) (generic.Service, error) {
@@ -73,6 +74,13 @@ func newApriltagArmService(ctx context.Context, deps resource.Dependencies, conf
 	svc.fsSvc, err = framesystem.FromDependencies(deps)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get frame system service: %w", err)
+	}
+
+	if cfg.CameraName != "" {
+		svc.cam, err = camera.FromDependencies(deps, cfg.CameraName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get camera %q: %w", cfg.CameraName, err)
+		}
 	}
 
 	return svc, nil
@@ -125,7 +133,7 @@ func (s *apriltagArmService) handleSavePose(ctx context.Context, cmd map[string]
 		}
 	}
 
-	tagWorld, err := s.getTagPoseInWorld(ctx, tagID)
+	tagPose, tagWorld, err := s.getTagPoseInWorld(ctx, tagID)
 	if err != nil {
 		return nil, err
 	}
@@ -149,9 +157,10 @@ func (s *apriltagArmService) handleSavePose(ctx context.Context, cmd map[string]
 	offset := spatialmath.PoseBetween(tagWorld.Pose(), armWorld.Pose())
 
 	saved := SavedPose{
-		TagID:       tagID,
-		Point:       offset.Point(),
-		Orientation: *offset.Orientation().OrientationVectorDegrees(),
+		TagID:          tagID,
+		Point:          offset.Point(),
+		Orientation:    *offset.Orientation().OrientationVectorDegrees(),
+		TagPixelCenter: s.projectTagToPixels(ctx, tagPose),
 	}
 
 	if s.cfg.SavedPoses == nil {
@@ -236,7 +245,7 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 		return nil, fmt.Errorf("no pose named %q", name)
 	}
 
-	tagWorld, err := s.getTagPoseInWorld(ctx, saved.TagID)
+	_, tagWorld, err := s.getTagPoseInWorld(ctx, saved.TagID)
 	if err != nil {
 		return nil, err
 	}
@@ -268,9 +277,17 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 		"theta": ov.Theta,
 	}
 
+	resp := map[string]interface{}{"success": true, "name": name, "plan": plan}
+	if saved.TagPixelCenter != nil {
+		resp["tag_pixel_center"] = map[string]interface{}{
+			"x": saved.TagPixelCenter.X,
+			"y": saved.TagPixelCenter.Y,
+		}
+	}
+
 	if planOnly {
 		s.logger.Infof("plan-only move_to_pose %q (tag %d)", name, saved.TagID)
-		return map[string]interface{}{"success": true, "name": name, "plan": plan}, nil
+		return resp, nil
 	}
 
 	_, err = s.motionSvc.Move(ctx, motion.MoveReq{
@@ -282,20 +299,20 @@ func (s *apriltagArmService) handleMoveToPose(ctx context.Context, cmd map[strin
 	}
 
 	s.logger.Infof("moved to pose %q (tag %d)", name, saved.TagID)
-	return map[string]interface{}{"success": true, "name": name, "plan": plan}, nil
+	return resp, nil
 }
 
-// getTagPoseInWorld returns the named tag's pose in world frame.
+// getTagPoseInWorld returns the tag's camera-frame pose and world-frame pose.
 // Returns an error immediately if the tag is not visible.
-func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (*referenceframe.PoseInFrame, error) {
+func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (*referenceframe.PoseInFrame, *referenceframe.PoseInFrame, error) {
 	poses, err := s.tracker.Poses(ctx, []string{}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get tag poses: %w", err)
+		return nil, nil, fmt.Errorf("failed to get tag poses: %w", err)
 	}
 
 	tagPose, ok := poses[strconv.Itoa(tagID)]
 	if !ok {
-		return nil, fmt.Errorf("tag %d is not visible", tagID)
+		return nil, nil, fmt.Errorf("tag %d is not visible", tagID)
 	}
 
 	cp := tagPose.Pose().Point()
@@ -305,10 +322,37 @@ func (s *apriltagArmService) getTagPoseInWorld(ctx context.Context, tagID int) (
 
 	tagWorld, err := s.fsSvc.TransformPose(ctx, tagPose, "world", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to transform tag %d pose to world frame: %w", tagID, err)
+		return nil, nil, fmt.Errorf("failed to transform tag %d pose to world frame: %w", tagID, err)
 	}
 
-	return tagWorld, nil
+	return tagPose, tagWorld, nil
+}
+
+// projectTagToPixels uses camera intrinsics to project the tag's camera-frame
+// position to a 2-D image coordinate. Returns nil if no camera is configured
+// or intrinsics are unavailable.
+func (s *apriltagArmService) projectTagToPixels(ctx context.Context, tagPose *referenceframe.PoseInFrame) *PixelPoint {
+	if s.cam == nil {
+		return nil
+	}
+	props, err := s.cam.Properties(ctx)
+	if err != nil {
+		s.logger.Warnf("could not get camera properties for pixel projection: %v", err)
+		return nil
+	}
+	ip := props.IntrinsicParams
+	if ip == nil {
+		s.logger.Warn("camera has no intrinsic parameters; skipping pixel projection")
+		return nil
+	}
+	pt := tagPose.Pose().Point() // camera-frame position in mm
+	if pt.Z == 0 {
+		return nil
+	}
+	return &PixelPoint{
+		X: ip.Fx*pt.X/pt.Z + ip.Ppx,
+		Y: ip.Fy*pt.Y/pt.Z + ip.Ppy,
+	}
 }
 
 // persistConfig writes the current in-memory config back to the Viam cloud config.
