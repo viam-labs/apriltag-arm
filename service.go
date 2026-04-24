@@ -135,6 +135,16 @@ func (s *apriltagArmService) handleSavePose(ctx context.Context, cmd map[string]
 		return nil, fmt.Errorf("failed to get arm EEF pose: %w", err)
 	}
 
+	twp := tagWorld.Pose().Point()
+	two := tagWorld.Pose().Orientation().OrientationVectorDegrees()
+	s.logger.Infof("tag %d in world frame: pos=(%.2f, %.2f, %.2f) orientation=(ox=%.3f oy=%.3f oz=%.3f theta=%.3f)",
+		tagID, twp.X, twp.Y, twp.Z, two.OX, two.OY, two.OZ, two.Theta)
+
+	awp := armWorld.Pose().Point()
+	awo := armWorld.Pose().Orientation().OrientationVectorDegrees()
+	s.logger.Infof("arm in world frame: pos=(%.2f, %.2f, %.2f) orientation=(ox=%.3f oy=%.3f oz=%.3f theta=%.3f)",
+		awp.X, awp.Y, awp.Z, awo.OX, awo.OY, awo.OZ, awo.Theta)
+
 	// offset = inv(tagWorld) * armWorld
 	offset := spatialmath.PoseBetween(tagWorld.Pose(), armWorld.Pose())
 
