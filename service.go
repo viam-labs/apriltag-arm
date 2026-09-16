@@ -90,6 +90,10 @@ func (s *apriltagArmService) Name() resource.Name {
 	return s.name
 }
 
+func (s *apriltagArmService) Status(ctx context.Context) (map[string]interface{}, error) {
+	return map[string]interface{}{}, nil
+}
+
 func (s *apriltagArmService) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	command, ok := cmd["command"].(string)
 	if !ok || command == "" {
